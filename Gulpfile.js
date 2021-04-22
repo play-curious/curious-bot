@@ -1,6 +1,7 @@
 const gulp = require("gulp")
 const esbuild = require("gulp-esbuild")
 const del = require("del")
+const cp = require("child_process")
 
 function clean() {
   return del(["dist/**/*"])
@@ -19,6 +20,10 @@ function build(){
     .pipe(gulp.dest("dist"))
 }
 
-exports.clean = clean
-exports.build = build
-exports.cleanAndBuild = gulp.series(clean, build)
+function watch(cb) {
+  cp.exec("nodemon dist/index", cb)
+  gulp.watch("src/**/*.ts", { delay: 500 }, gulp.series(clean, build))
+}
+
+exports.build = gulp.series(clean, build)
+exports.watch = gulp.series(clean, build, watch)

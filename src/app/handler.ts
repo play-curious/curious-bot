@@ -3,13 +3,14 @@ import path from "path"
 import tims from "tims"
 import chalk from "chalk"
 import regexParser from "regex-parser"
+import yargsParser from "yargs-parser"
 
 import * as core from "./core"
 import * as logger from "./logger"
-import yargsParser from "yargs-parser"
 
 export type CommandMessage = Discord.Message & {
   args: { [name: string]: any } & any[]
+  triggerCoolDown: () => void
   rest: string
 }
 
@@ -23,11 +24,25 @@ export type DirectMessage = CommandMessage & {
   channel: Discord.DMChannel
 }
 
-export interface Argument<Message extends CommandMessage> {
+export interface CoolDown {
+  time: number
+  trigger: boolean
+}
+
+export interface Argument {
   name: string
+  description: string
+}
+
+export interface Rest<Message extends CommandMessage> extends Argument {
+  required?: core.Scrap<boolean, [message: Message]>
+  default?: core.Scrap<string, [message: Message]>
+}
+
+export interface Option<Message extends CommandMessage> extends Argument {
   aliases?: string[] | string
-  default?: string | ((message: Message) => string | Promise<string>)
-  required?: boolean
+  default?: core.Scrap<string, [message: Message]>
+  required?: core.Scrap<boolean, [message: Message]>
   castValue?:
     | "number"
     | "date"
@@ -35,58 +50,76 @@ export interface Argument<Message extends CommandMessage> {
     | "boolean"
     | "regex"
     | "array"
-    | ((value: string, message: Message) => unknown)
+    | "user"
+    | "member"
+    | "channel"
+    | "message"
+    | ((value: string, message: Message) => any)
+  /**
+   * If returns string, it used as error message
+   */
   checkValue?:
     | RegExp
-    | ((value: string, message: Message) => boolean | Promise<boolean>)
-  description: string
-  typeDescription?: string
+    | core.Scrap<boolean | RegExp | string, [value: string, message: Message]>
+  typeDescription?: core.Scrap<string, [value: string, message: Message]>
 }
 
-export interface Positional<Message extends CommandMessage>
-  extends Omit<Argument<Message>, "aliases"> {}
+export type Positional<Message extends CommandMessage> = Omit<
+  Option<Message>,
+  "aliases"
+>
 
 export interface Flag<Message extends CommandMessage>
-  extends Pick<Argument<Message>, "name" | "aliases" | "description"> {
+  extends Pick<Option<Message>, "name" | "aliases" | "description"> {
   flag: string
 }
 
-export function isFlag<Message extends CommandMessage>(
-  arg: Argument<Message>
-): arg is Flag<Message> {
-  return arg.hasOwnProperty("flag")
-}
+export type Middleware<Message extends CommandMessage> = (
+  message: Message
+) => Promise<true | string> | boolean | string
 
 export interface Command<Message extends CommandMessage = CommandMessage> {
   name: string
-  aliases?: string[]
+  aliases?: string[] | string
   /**
    * Cool down of command (in ms)
    */
-  coolDown?: number
+  coolDown?: core.Scrap<number, [message: Message]>
   /**
    * Short description displayed in help menu
    */
-  description: string
+  description: core.Scrap<string, [message: Message]>
   /**
    * Description displayed in command detail
    */
-  longDescription?: string
-  examples?: string[]
-  guildOwner?: boolean
-  guildOnly?: boolean
-  botOwner?: boolean
-  dmOnly?: boolean
-  userPermissions?: Discord.PermissionString[]
-  botPermissions?: Discord.PermissionString[]
+  longDescription?: core.Scrap<string, [message: Message]>
+  examples?: core.Scrap<string[], [message: Message]>
+
+  // Restriction flags and permissions
+  guildOwnerOnly?: core.Scrap<boolean, [message: Message]>
+  botOwnerOnly?: core.Scrap<boolean, [message: Message]>
+  guildChannelOnly?: core.Scrap<boolean, [message: Message]>
+  dmChannelOnly?: core.Scrap<boolean, [message: Message]>
+  userPermissions?: core.Scrap<Discord.PermissionString[], [message: Message]>
+  botPermissions?: core.Scrap<Discord.PermissionString[], [message: Message]>
+
   /**
-   * Yargs positional
+   * Middlewares can stop the command if returning a string (string is displayed as error message in Discord)
    */
-  positional?: Positional<Message>[]
+  middlewares?: core.Scrap<Middleware<Message>[], [message: Message]>
+
   /**
-   * Yargs arguments (e.g. `--myArgument=value`)
+   * The rest of message after excludes all other arguments.
    */
-  args?: Argument<Message>[]
+  rest?: core.Scrap<Rest<Message>, [message: Message]>
+  /**
+   * Yargs positional argument (e.g. `[arg] <arg>`)
+   */
+  positional?: core.Scrap<Positional<Message>[], [message: Message]>
+  /**
+   * Yargs option arguments (e.g. `--myArgument=value`)
+   */
+  options?: core.Scrap<Option<Message>[], [message: Message]>
   /**
    * Yargs flag arguments (e.g. `--myFlag -f`)
    */
@@ -112,23 +145,28 @@ export class Commands extends Discord.Collection<string, Command<any>> {
   public resolve<Message extends CommandMessage>(
     key: string
   ): Command<Message> | undefined {
-    return this.find((command) => {
-      return (
-        key === command.name ||
-        !!command.aliases?.some((alias) => key === alias)
-      )
-    })
+    for (const [name, command] of this) {
+      if (key === name) {
+        return command
+      } else {
+        const aliases = command.aliases ?? []
+        const resolvedAliases = Array.isArray(aliases) ? aliases : [aliases]
+        if (resolvedAliases.some((alias) => key === alias)) {
+          return command
+        }
+      }
+    }
   }
 
   public add<Message extends CommandMessage>(command: Command<Message>) {
-    validateArguments(command)
+    validateCommand(command)
     this.set(command.name, command)
   }
 }
 
 export function resolveGivenArgument<Message extends CommandMessage>(
   parsedArgs: yargsParser.Arguments,
-  arg: Argument<Message> | Flag<Message>
+  arg: Option<Message> | Flag<Message>
 ): { given: boolean; usedName: string; value: any } {
   let usedName = arg.name
   let given = parsedArgs.hasOwnProperty(arg.name)
@@ -161,35 +199,65 @@ export function resolveGivenArgument<Message extends CommandMessage>(
 }
 
 export async function checkValue<Message extends CommandMessage>(
-  subject: Pick<Argument<Message>, "checkValue" | "name">,
+  subject: Pick<Option<Message>, "checkValue" | "name">,
   subjectType: "positional" | "argument",
   value: string,
   message: Message
 ): Promise<boolean> {
   if (!subject.checkValue) return true
 
-  if (
-    typeof subject.checkValue === "function"
-      ? !(await subject.checkValue(value, message))
-      : !subject.checkValue.test(value)
-  ) {
+  const checkResult = await core.scrap(subject.checkValue, value, message)
+
+  if (typeof checkResult === "string") {
     await message.channel.send(
       new Discord.MessageEmbed()
         .setColor("RED")
         .setAuthor(
-          `Bad ${subjectType} ${
-            typeof subject.checkValue === "function" ? "tested " : "pattern"
-          } "${subject.name}".`,
+          `Bad ${subjectType} tested "${subject.name}".`,
           message.client.user?.displayAvatarURL()
         )
-        .setDescription(
-          typeof subject.checkValue === "function"
-            ? core.CODE.stringify({
-                content: core.CODE.format(subject.checkValue.toString()),
-                lang: "js",
-              })
-            : `Expected pattern: \`${subject.checkValue.source}\``
+        .setDescription(checkResult)
+    )
+
+    return false
+  }
+
+  if (typeof checkResult === "boolean") {
+    if (!checkResult) {
+      await message.channel.send(
+        new Discord.MessageEmbed()
+          .setColor("RED")
+          .setAuthor(
+            `Bad ${subjectType} tested "${subject.name}".`,
+            message.client.user?.displayAvatarURL()
+          )
+          .setDescription(
+            typeof subject.checkValue === "function"
+              ? core.code.stringify({
+                  content: core.code.format(subject.checkValue.toString()),
+                  lang: "js",
+                })
+              : subject.checkValue instanceof RegExp
+              ? `Expected pattern: \`${subject.checkValue.source}\``
+              : "Please use the `--help` flag for more information."
+          )
+      )
+
+      return false
+    }
+
+    return true
+  }
+
+  if (!checkResult.test(value)) {
+    await message.channel.send(
+      new Discord.MessageEmbed()
+        .setColor("RED")
+        .setAuthor(
+          `Bad ${subjectType} pattern "${subject.name}".`,
+          message.client.user?.displayAvatarURL()
         )
+        .setDescription(`Expected pattern: \`${checkResult.source}\``)
     )
 
     return false
@@ -198,7 +266,7 @@ export async function checkValue<Message extends CommandMessage>(
 }
 
 export async function castValue<Message extends CommandMessage>(
-  subject: Pick<Argument<Message>, "castValue" | "name">,
+  subject: Pick<Option<Message>, "castValue" | "name">,
   subjectType: "positional" | "argument",
   baseValue: string | undefined,
   message: Message,
@@ -211,7 +279,8 @@ export async function castValue<Message extends CommandMessage>(
   try {
     switch (subject.castValue) {
       case "boolean":
-        setValue(/true|1|oui|on|o|y|yes/i.test(baseValue ?? ""))
+        if (baseValue === undefined) throw empty
+        else setValue(/^(?:true|1|oui|on|o|y|yes)$/i.test(baseValue))
         break
       case "date":
         if (!baseValue) {
@@ -230,7 +299,7 @@ export async function castValue<Message extends CommandMessage>(
         break
       case "number":
         setValue(Number(baseValue))
-        if (!/-?(?:0|[1-9]\d*)/.test(baseValue ?? ""))
+        if (!/^-?(?:0|[1-9]\d*)$/.test(baseValue ?? ""))
           throw new Error("The value is not a Number!")
         break
       case "regex":
@@ -240,6 +309,60 @@ export async function castValue<Message extends CommandMessage>(
       case "array":
         if (baseValue === undefined) setValue([])
         else setValue(baseValue.split(/[,;|]/))
+        break
+      case "channel":
+        if (baseValue) {
+          const match = /^(?:<#(\d+)>|(\d+))$/.exec(baseValue)
+          if (match) {
+            const id = match[1] ?? match[2]
+            const channel = message.client.channels.cache.get(id)
+            if (channel) setValue(channel)
+            else throw new Error("Unknown channel!")
+          } else throw new Error("Invalid channel value!")
+        } else throw empty
+        break
+      case "member":
+        if (baseValue) {
+          if (isGuildMessage(message)) {
+            const match = /^(?:<@!?(\d+)>|(\d+))$/.exec(baseValue)
+            if (match) {
+              const id = match[1] ?? match[2]
+              const member = message.guild.members.cache.get(id)
+              if (member) setValue(member)
+              else throw new Error("Unknown member!")
+            } else throw new Error("Invalid member value!")
+          } else
+            throw new Error(
+              'The "GuildMember" casting is only available in a guild!'
+            )
+        } else throw empty
+        break
+      case "message":
+        if (baseValue) {
+          const match = /^https?:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)$/.exec(
+            baseValue
+          )
+          if (match) {
+            const [, channelID, messageID] = match
+            const channel = message.client.channels.cache.get(channelID)
+            if (channel) {
+              if (channel.isText()) {
+                setValue(await channel.messages.fetch(messageID, false))
+              } else throw new Error("Invalid channel type!")
+            } else throw new Error("Unknown channel!")
+          } else throw new Error("Invalid message link!")
+        } else throw empty
+        break
+      case "user":
+        if (baseValue) {
+          const match = /^(?:<@!?(\d+)>|(\d+))$/.exec(baseValue)
+          if (match) {
+            const id = match[1] ?? match[2]
+            const user = await message.client.users.fetch(id, false)
+            if (user) setValue(user)
+            else throw new Error("Unknown user!")
+          } else throw new Error("Invalid user value!")
+        } else throw empty
         break
       default:
         if (baseValue === undefined) throw empty
@@ -259,7 +382,7 @@ export async function castValue<Message extends CommandMessage>(
             typeof subject.castValue === "function"
               ? "{*custom type*}"
               : "`" + subject.castValue + "`"
-          }\n${core.CODE.stringify({
+          }\n${core.code.stringify({
             content: `Error: ${error.message}`,
             lang: "js",
           })}`
@@ -271,7 +394,7 @@ export async function castValue<Message extends CommandMessage>(
   return true
 }
 
-export function validateArguments<Message extends CommandMessage>(
+export function validateCommand<Message extends CommandMessage>(
   command: Command<Message>,
   path?: string
 ): void | never {
@@ -294,18 +417,29 @@ export function validateArguments<Message extends CommandMessage>(
           }" command must be equal to 1`
         )
 
+  if (command.coolDown)
+    if (!command.run.toString().includes("triggerCoolDown"))
+      logger.warn(
+        `you forgot using ${chalk.greenBright(
+          "message.triggerCoolDown()"
+        )} in the ${chalk.blueBright(command.name)} command.`,
+        "handler"
+      )
+
   logger.log(
-    `loaded command ${chalk.blue((path ? path + " " : "") + command.name)}`,
+    `loaded command ${chalk.blueBright(
+      (path ? path + " " : "") + command.name
+    )}`,
     "handler"
   )
 
   if (command.subs)
     for (const sub of command.subs)
-      validateArguments(sub, path ? path + " " + command.name : command.name)
+      validateCommand(sub, path ? path + " " + command.name : command.name)
 }
 
 export function getTypeDescriptionOf<Message extends CommandMessage>(
-  arg: Argument<Message>
+  arg: Option<Message>
 ) {
   if (arg.typeDescription) return arg.typeDescription
   if (!arg.castValue) return "string"
@@ -326,29 +460,46 @@ export async function sendCommandDetails<Message extends CommandMessage>(
   const positionalList: string[] = []
   const argumentList: string[] = []
   const flagList: string[] = []
+  let restPattern = ""
+
+  if (cmd.rest) {
+    const rest = await core.scrap(cmd.rest, message)
+    const dft =
+      rest.default !== undefined
+        ? `="${await core.scrap(rest.default, message)}"`
+        : ""
+
+    restPattern = (await core.scrap(rest.required, message))
+      ? `<...${rest.name}>`
+      : `[...${rest.name}${dft}]`
+  }
 
   if (cmd.positional) {
-    for (const positional of cmd.positional) {
+    const cmdPositional = await core.scrap(cmd.positional, message)
+
+    for (const positional of cmdPositional) {
       const dft =
         positional.default !== undefined
           ? `="${await core.scrap(positional.default, message)}"`
           : ""
       positionalList.push(
-        positional.required && !dft
+        (await core.scrap(positional.required, message)) && !dft
           ? `<${positional.name}>`
           : `[${positional.name}${dft}]`
       )
     }
   }
 
-  if (cmd.args) {
-    for (const arg of cmd.args) {
+  if (cmd.options) {
+    const cmdOptions = await core.scrap(cmd.options, message)
+
+    for (const arg of cmdOptions) {
       const dft =
         arg.default !== undefined
           ? `="${core.scrap(arg.default, message)}"`
           : ""
       argumentList.push(
-        arg.required
+        (await core.scrap(arg.required, message))
           ? `\`--${arg.name}${dft}\` (\`${getTypeDescriptionOf(arg)}\`) ${
               arg.description ?? ""
             }`
@@ -367,43 +518,61 @@ export async function sendCommandDetails<Message extends CommandMessage>(
 
   const specialPermissions = []
 
-  if (cmd.botOwner) specialPermissions.push("BOT_OWNER")
-  if (cmd.guildOwner) specialPermissions.push("GUILD_OWNER")
+  if (await core.scrap(cmd.botOwnerOnly, message))
+    specialPermissions.push("BOT_OWNER")
+  if (await core.scrap(cmd.guildOwnerOnly, message))
+    specialPermissions.push("GUILD_OWNER")
 
   const embed = new Discord.MessageEmbed()
     .setColor("BLURPLE")
     .setAuthor("Command details", message.client.user?.displayAvatarURL())
     .setTitle(
-      `${pattern} ${[...positionalList, ...flagList].join(" ")} ${
-        cmd.args ? "[OPTIONS]" : ""
+      `${pattern} ${[...positionalList, restPattern, ...flagList].join(" ")} ${
+        cmd.options ? "[OPTIONS]" : ""
       }`
     )
-    .setDescription(cmd.longDescription ?? cmd.description ?? "no description")
+    .setDescription(
+      (await core.scrap(cmd.longDescription, message)) ??
+        (await core.scrap(cmd.description, message)) ??
+        "no description"
+    )
 
   if (argumentList.length > 0)
     embed.addField("options", argumentList.join("\n"), false)
 
-  if (cmd.aliases)
+  if (cmd.aliases) {
+    const aliases = Array.isArray(cmd.aliases) ? cmd.aliases : [cmd.aliases]
+
     embed.addField(
       "aliases",
-      cmd.aliases.map((alias) => `\`${alias}\``).join(", "),
+      aliases.map((alias) => `\`${alias}\``).join(", "),
       true
     )
+  }
 
-  if (cmd.examples)
+  if (cmd.examples) {
+    const examples = await core.scrap(cmd.examples, message)
+
     embed.addField(
       "examples:",
-      core.CODE.stringify({
-        content: cmd.examples.map((example) => prefix + example).join("\n"),
+      core.code.stringify({
+        content: examples.map((example) => prefix + example).join("\n"),
       }),
       false
     )
+  }
 
-  if (cmd.botPermissions)
-    embed.addField("bot permissions", cmd.botPermissions.join(", "), true)
+  if (cmd.botPermissions) {
+    const botPermissions = await core.scrap(cmd.botPermissions, message)
 
-  if (cmd.userPermissions)
-    embed.addField("user permissions", cmd.userPermissions.join(", "), true)
+    embed.addField("bot permissions", botPermissions.join(", "), true)
+  }
+
+  if (cmd.userPermissions) {
+    const userPermissions = await core.scrap(cmd.userPermissions, message)
+
+    embed.addField("user permissions", userPermissions.join(", "), true)
+  }
 
   if (specialPermissions.length > 0)
     embed.addField(
@@ -412,15 +581,25 @@ export async function sendCommandDetails<Message extends CommandMessage>(
       true
     )
 
-  if (cmd.coolDown)
-    embed.addField("cool down", tims.duration(cmd.coolDown), true)
+  if (cmd.coolDown) {
+    const coolDown = await core.scrap(cmd.coolDown, message)
+
+    embed.addField("cool down", tims.duration(coolDown), true)
+  }
 
   if (cmd.subs)
     embed.addField(
       "sub commands:",
-      cmd.subs
-        .map((sub) => `**${sub.name}**: ${sub.description ?? "no description"}`)
-        .join("\n"),
+      (
+        await Promise.all(
+          cmd.subs.map(
+            async (sub) =>
+              `**${sub.name}**: ${
+                (await core.scrap(sub.description, message)) ?? "no description"
+              }`
+          )
+        )
+      ).join("\n"),
       true
     )
 
@@ -443,6 +622,12 @@ export function isDirectMessage(
   message: CommandMessage
 ): message is DirectMessage {
   return message.channel instanceof Discord.DMChannel
+}
+
+export function isFlag<Message extends CommandMessage>(
+  arg: Option<Message>
+): arg is Flag<Message> {
+  return arg.hasOwnProperty("flag")
 }
 
 export const commands = new Commands()
