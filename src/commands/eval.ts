@@ -26,7 +26,7 @@ const command: app.Command = {
       name: "packages",
       aliases: ["use", "u", "req", "require", "import", "i"],
       castValue: "array",
-      description: "NPM packages I want to includes in my code",
+      description: "NPM packages to includes in my code",
     },
   ],
   flags: [
