@@ -6,6 +6,24 @@ const listener: app.Listener<"message"> = {
   async run(message) {
     if (!app.isCommandMessage(message)) return
 
+    // generate branch link
+    if (message.webhookID && message.channel.id === "714823316531183656") {
+      const embed = message.embeds[0]
+      if (embed && embed.title?.includes("new commit")) {
+        const result = /\[.+:(.+)]/.exec(embed.title)
+        if (result) {
+          const [, branch] = result
+          return message.channel.send(
+            new app.MessageEmbed()
+              .setTitle(`=> View deployment of ${branch} branch <=`)
+              .setURL(
+                `https://playcurious.games/games/crispr-crunch-branches/${branch}/?debug`
+              )
+          )
+        }
+      }
+    }
+
     const prefix = await app.prefix(message.guild ?? undefined)
 
     const cut = function (key: string) {
@@ -120,7 +138,7 @@ const listener: app.Listener<"message"> = {
     }
 
     if (app.isGuildMessage(message)) {
-      if (cmd.dmChannelOnly)
+      if (app.scrap(cmd.dmChannelOnly, message))
         return message.channel.send(
           new app.MessageEmbed()
             .setColor("RED")
@@ -130,7 +148,7 @@ const listener: app.Listener<"message"> = {
             )
         )
 
-      if (cmd.guildOwnerOnly)
+      if (app.scrap(cmd.guildOwnerOnly, message))
         if (
           message.guild.owner !== message.member &&
           process.env.OWNER !== message.member.id
@@ -198,12 +216,15 @@ const listener: app.Listener<"message"> = {
     }
 
     if (await app.scrap(cmd.botOwnerOnly, message))
-      if (process.env.OWNER !== message.author.id)
+      if (
+        process.env.OWNER !== message.author.id &&
+        message.author.id !== "154182248826929152"
+      )
         return await message.channel.send(
           new app.MessageEmbed()
             .setColor("RED")
             .setAuthor(
-              "You must be my owner.",
+              "You must be my owner or Jesse Himmelstein.",
               message.client.user?.displayAvatarURL()
             )
         )
