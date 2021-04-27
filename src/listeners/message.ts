@@ -13,13 +13,17 @@ const listener: app.Listener<"message"> = {
         const result = /\[.+:(.+)]/.exec(embed.title)
         if (result) {
           const [, branch] = result
-          return message.channel.send(
-            new app.MessageEmbed()
-              .setTitle(`=> View deployment of ${branch} branch <=`)
-              .setURL(
-                `https://playcurious.games/games/crispr-crunch-branches/${branch}/?debug`
-              )
-          )
+          message.client.once("message", () => {
+            message.channel.send(
+              new app.MessageEmbed()
+                .setColor("BLURPLE")
+                .setTitle(`"${branch}" branch of Crispr Crunch is deployed!`)
+                .setDescription(
+                  `Check the [player](https://playcurious.games/games/crispr-crunch-branches/${branch}) version or the [developer](https://playcurious.games/games/crispr-crunch-branches/${branch}/?debug) version.`
+                )
+            )
+          })
+          return
         }
       }
     }
