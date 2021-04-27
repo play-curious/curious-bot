@@ -4,6 +4,8 @@ import dayjs from "dayjs"
 import utc from "dayjs/plugin/utc"
 import timezone from "dayjs/plugin/timezone"
 import toObject from "dayjs/plugin/toObject"
+import discord from "discord.js"
+import EventEmitter from "events"
 
 import * as logger from "./logger"
 
@@ -129,4 +131,32 @@ export function forceTextSize(
   } else {
     return text
   }
+}
+
+export interface EventEmitters {
+  message:
+    | discord.TextChannel
+    | discord.DMChannel
+    | discord.NewsChannel
+    | discord.User
+    | discord.GuildMember
+    | discord.Guild
+}
+
+export const messageEmitter = new EventEmitter()
+
+export function onceMessage<
+  Event extends keyof Pick<discord.ClientEvents, keyof EventEmitters>
+>(
+  emitter: EventEmitters[Event],
+  cb: (...args: discord.ClientEvents[Event]) => unknown
+) {
+  // @ts-ignore
+  messageEmitter.once(emitter.id, cb)
+}
+
+export function emitMessage<
+  Event extends keyof Pick<discord.ClientEvents, keyof EventEmitters>
+>(emitter: EventEmitters[Event], ...args: discord.ClientEvents[Event]) {
+  messageEmitter.emit(emitter.id, ...args)
 }

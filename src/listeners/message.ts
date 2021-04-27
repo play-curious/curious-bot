@@ -6,6 +6,14 @@ const listener: app.Listener<"message"> = {
   async run(message) {
     if (!app.isCommandMessage(message)) return
 
+    app.emitMessage(message.channel, message)
+    app.emitMessage(message.author, message)
+
+    if (app.isGuildMessage(message)) {
+      app.emitMessage(message.guild, message)
+      app.emitMessage(message.member, message)
+    }
+
     // generate branch link
     if (message.webhookID && message.channel.id === "714823316531183656") {
       const embed = message.embeds[0]
@@ -13,7 +21,7 @@ const listener: app.Listener<"message"> = {
         const result = /\[.+:(.+)]/.exec(embed.title)
         if (result) {
           const [, branch] = result
-          message.client.once("message", () => {
+          app.onceMessage(message.channel, () => {
             message.channel.send(
               new app.MessageEmbed()
                 .setColor("BLURPLE")
