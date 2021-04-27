@@ -9,6 +9,12 @@ import EventEmitter from "events"
 
 import * as logger from "./logger"
 
+export const startedAt = Date.now()
+
+export function uptime(): number {
+  return Date.now() - startedAt
+}
+
 /**
  * Resolve `T` value from `T | (() => T)`
  * @param item - resolvable
