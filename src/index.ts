@@ -1,67 +1,39 @@
-import Discord from "discord.js"
-import dotenv from "dotenv"
-import chalk from "chalk"
-import fs from "fs/promises"
-import path from "path"
+import discord from "discord.js"
+import type { FullClient } from "./app.js"
 
-dotenv.config()
+import "dotenv/config"
 
-for (const key of ["TOKEN", "PREFIX", "OWNER"]) {
-  if (!process.env[key] || /[{}\s]/.test(process.env[key] as string)) {
-    throw new Error("You need to add " + key + " value in your .env file.")
+for (const key of ["BOT_TOKEN", "BOT_PREFIX", "BOT_OWNER"]) {
+  if (!process.env[key] || /^{{.+}}$/.test(process.env[key] as string)) {
+    throw new Error(`You need to add "${key}" value in your .env file.`)
   }
 }
 
-import * as app from "./app"
-
-const client = new Discord.Client()
+const client = new discord.Client({
+  intents: process.env.BOT_INTENTS
+    ? process.env.BOT_INTENTS.split(/[;|.,\s+]+/).map(
+        (intent) => discord.Intents.FLAGS[intent as discord.IntentsString]
+      )
+    : [],
+})
 
 ;(async () => {
-  // load tables
-  await fs.readdir(app.tablesPath).then(async (files) => {
-    const tables = await Promise.all(
-      files.map(async (filename) => {
-        const tableFile = await import(path.join(app.tablesPath, filename))
-        return tableFile.default as app.Table<any>
-      })
-    )
-    return Promise.all(
-      tables
-        .sort((a, b) => {
-          return (b.options.priority ?? 0) - (a.options.priority ?? 0)
-        })
-        .map(async (table) => {
-          app.tables.set(table.options.name, await table.make())
-        })
-    )
-  })
+  const app = await import("./app.js")
 
-  // load commands
-  await fs.readdir(app.commandsPath).then((files) =>
-    files.forEach((filename) => {
-      app.commands.add(require(path.join(app.commandsPath, filename)))
-    })
-  )
+  try {
+    await app.tableHandler.load(client as FullClient)
+    await app.commandHandler.load(client as FullClient)
+    await app.listenerHandler.load(client as FullClient)
 
-  // load listeners
-  await fs.readdir(app.listenersPath).then((files) =>
-    files.forEach((filename) => {
-      const listener: app.Listener<any> = require(path.join(
-        app.listenersPath,
-        filename
-      ))
-      client[listener.once ? "once" : "on"](listener.event, listener.run)
-      app.log(
-        `loaded event ${chalk.yellow(
-          listener.once ? "once" : "on"
-        )} ${chalk.blue(listener.event)}`,
-        "handler"
-      )
-    })
-  )
+    await client.login(process.env.BOT_TOKEN)
 
-  // start client
-  client.login(process.env.TOKEN).catch(() => {
-    throw new Error("Invalid Discord token given.")
-  })
-})().catch((error) => app.error(error, "system", true))
+    if (!app.isFullClient(client)) {
+      app.error("The Discord client is not full.", "index")
+      client.destroy()
+      process.exit(1)
+    }
+  } catch (error: any) {
+    app.error(error, "index", true)
+    process.exit(1)
+  }
+})()
