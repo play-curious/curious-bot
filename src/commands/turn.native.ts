@@ -1,10 +1,11 @@
-import * as app from "../app"
+import * as app from "../app.js"
 
-const command: app.Command = {
+export default new app.Command({
   name: "turn",
-  aliases: ["power"],
-  botOwnerOnly: true,
   description: "Turn on/off command handling",
+  aliases: ["power"],
+  channelType: "all",
+  botOwnerOnly: true,
   positional: [
     {
       name: "activated",
@@ -19,6 +20,4 @@ const command: app.Command = {
       `Command handling ${message.args.activated ? "activated" : "disabled"} `
     )
   },
-}
-
-module.exports = command
+})

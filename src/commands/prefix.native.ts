@@ -1,10 +1,11 @@
-import * as app from "../app"
-import guilds from "../tables/guilds"
+import * as app from "../app.js"
 
-const command: app.Command<app.GuildMessage> = {
+import guilds from "../tables/guilds.native.js"
+
+export default new app.Command({
   name: "prefix",
   guildOwnerOnly: true,
-  guildChannelOnly: true,
+  channelType: "guild",
   description: "Edit or show the bot prefix",
   positional: [
     {
@@ -35,6 +36,4 @@ const command: app.Command<app.GuildMessage> = {
       `My new prefix for "**${message.guild}**" is \`${prefix}\``
     )
   },
-}
-
-module.exports = command
+})
