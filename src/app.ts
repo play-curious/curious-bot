@@ -5,6 +5,7 @@ export * from "./app/handler.js"
 export * from "./app/logger.js"
 export * from "./app/core.js"
 export * from "./app.native.js"
+export * from "./namespaces/utils.native.js"
 export * from "./namespaces/middlewares.js"
 
 export * as Discord from "discord.js"
