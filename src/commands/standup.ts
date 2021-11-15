@@ -14,7 +14,9 @@ export default new app.Command({
     },
   ],
   async run(message) {
-    const vocal: app.VoiceChannel = message.args.channel
+    const vocal: app.VoiceChannel = message.args.vocal
+
+    if(!vocal.isVoice()) return message.send(`No voice channel targeted`)
 
     return message.send(
       Array.from(vocal.members.values())
