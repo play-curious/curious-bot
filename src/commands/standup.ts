@@ -4,7 +4,7 @@ export default new app.Command({
   name: "standup",
   aliases: ["su", "order", "sort", "stand-up"],
   description: "The stand-up command",
-  channelType: "all",
+  channelType: "guild",
   positional: [
     {
       name: "vocal",
@@ -13,14 +13,28 @@ export default new app.Command({
       castValue: "channel+",
     },
   ],
+  options: [
+    {
+      name: "with",
+      aliases: ["include", "includes", "users", "members", "and"],
+      description: "Implicit members",
+      castValue: "array",
+    },
+  ],
   async run(message) {
     const vocal: app.VoiceChannel = message.args.vocal
 
-    if(!vocal.isVoice()) return message.send(`No voice channel targeted`)
+    if (!vocal.isVoice()) return message.send(`No voice channel targeted`)
 
     return message.send(
-      Array.from(vocal.members.values())
-        .sort((a, b) => Math.random() - 0.5)
+      [
+        ...vocal.members.values(),
+        ...message.args.with.map((resolvable: string) => {
+          const match = /(\d+)/.exec(resolvable)
+          return match ? message.guild.members.cache.get(match[1]) : null
+        }),
+      ]
+        .sort(() => Math.random() - 0.5)
         .map((e, i) => String(i + 1) + " " + e.displayName)
         .join("\n") || "No member found in " + vocal.name + " channel."
     )
