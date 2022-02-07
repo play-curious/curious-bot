@@ -4,6 +4,10 @@ import chalk from "chalk"
 
 import * as app from "../app.js"
 
+import { filename } from "dirname-filename-esm"
+
+const __filename = filename(import.meta)
+
 const listener: app.Listener<"ready"> = {
   event: "ready",
   description: "Just log that bot is ready",
@@ -16,7 +20,7 @@ const listener: app.Listener<"ready"> = {
     )
 
     figlet(app.fetchPackageJson().name, (err, value) => {
-      if (err) return app.error(err, "ready.native", true)
+      if (err) return app.error(err, __filename, true)
 
       console.log(
         boxen(chalk.blueBright(value), {

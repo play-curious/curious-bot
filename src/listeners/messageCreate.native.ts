@@ -1,5 +1,8 @@
 import * as app from "../app.js"
 import yargsParser from "yargs-parser"
+import { filename } from "dirname-filename-esm"
+
+const __filename = filename(import.meta)
 
 const listener: app.Listener<"messageCreate"> = {
   event: "messageCreate",
@@ -153,7 +156,7 @@ const listener: app.Listener<"messageCreate"> = {
     try {
       await cmd.options.run.bind(cmd)(message)
     } catch (error: any) {
-      app.error(error, "messageCreate.native", true)
+      app.error(error, cmd.filepath ?? __filename, true)
       message.channel
         .send(
           app.code.stringify({
@@ -164,7 +167,7 @@ const listener: app.Listener<"messageCreate"> = {
           })
         )
         .catch((error) => {
-          app.error(error, "messageCreate.native", true)
+          app.error(error, cmd.filepath ?? __filename, true)
         })
     }
   },

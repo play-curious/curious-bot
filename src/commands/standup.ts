@@ -5,20 +5,19 @@ export default new app.Command({
   aliases: ["su", "order", "sort", "stand-up"],
   description: "The stand-up command",
   channelType: "guild",
-  positional: [
-    {
-      name: "vocal",
-      description: "Voice channel to target",
-      default: "697707821848068096",
-      castValue: "channel+",
-    },
-  ],
   options: [
     {
       name: "with",
       aliases: ["include", "includes", "users", "members", "and"],
       description: "Implicit members",
       castValue: "array",
+    },
+    {
+      name: "vocal",
+      aliases: ["channel", "salon", "chan", "voc"],
+      description: "Voice channel to target",
+      default: "697707821848068096",
+      castValue: "channel",
     },
   ],
   async run(message) {
