@@ -22,7 +22,7 @@ export default new app.Command({
   ],
   flags: [
     {
-      name: "with-team",
+      name: "withTeam",
       aliases: ["team"],
       flag: "t",
       description: "With PlayCurious Team",
@@ -45,7 +45,7 @@ export default new app.Command({
         ...vocal.members.values(),
         ...membersOf(message.args.with),
         ...membersOf(
-          message.args.team
+          message.args.withTeam
             ? (
                 await message.guild.roles.fetch("619438748459073557")
               )?.members.map((m) => m.id) ?? []
