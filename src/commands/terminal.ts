@@ -9,6 +9,7 @@ export default new app.Command({
   aliases: ["term", "cmd", "command", "exec", ">", "process", "shell"],
   channelType: "all",
   botOwnerOnly: true,
+  middlewares: [app.locked],
   coolDown: 5000,
   rest: {
     all: true,

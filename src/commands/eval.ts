@@ -15,7 +15,7 @@ export default new app.Command({
   name: "eval",
   description: "JS code evaluator",
   channelType: "all",
-  middlewares: [app.adminOnly],
+  middlewares: [app.locked, app.adminOnly],
   aliases: ["js", "code", "run", "="],
   rest: {
     name: "code",

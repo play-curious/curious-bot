@@ -4,7 +4,7 @@ export default new app.Command({
   name: "database",
   description: "Run SQL query on database",
   aliases: ["query", "db", "sql", "?"],
-  middlewares: [app.adminOnly],
+  middlewares: [app.locked, app.adminOnly],
   channelType: "all",
   rest: {
     name: "query",

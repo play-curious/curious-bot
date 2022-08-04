@@ -12,3 +12,13 @@ export const adminOnly: app.Middleware<"dm" | "guild" | "all"> = (
       "You must be a bot admin.",
   }
 }
+
+export const locked: app.Middleware<"dm" | "guild" | "all"> = (
+  message,
+  data
+) => {
+  return {
+    data,
+    result: "This command is locked",
+  }
+}
