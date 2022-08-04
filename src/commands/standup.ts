@@ -20,37 +20,26 @@ export default new app.Command({
       castValue: "channel",
     },
   ],
-  flags: [
-    {
-      name: "withTeam",
-      aliases: ["team"],
-      flag: "t",
-      description: "With PlayCurious Team",
-    },
-  ],
   async run(message) {
+    if (message.args.with.length > 0)
+      return message.send({
+        embeds: [
+          new app.MessageEmbed()
+            .setTitle("Please use the following command instead")
+            .setDescription(
+              `${message.usedPrefix}standup ${message.args.with.join(" ")}`
+            ),
+        ],
+      })
+
     const vocal: app.VoiceChannel = message.args.vocal
 
     if (!vocal.isVoice()) return message.send(`No voice channel targeted`)
 
-    function membersOf(list: string[]) {
-      return list.map((resolvable) => {
-        const match = /(\d+)/.exec(resolvable)
-        return match ? message.guild.members.cache.get(match[1]) : null
-      })
-    }
-
     return message.send(
       [
         ...vocal.members.values(),
-        ...membersOf(message.args.with),
-        ...membersOf(
-          message.args.withTeam
-            ? (
-                await message.guild.roles.fetch("619438748459073557")
-              )?.members.map((m) => m.id) ?? []
-            : []
-        ),
+        ...(message.mentions?.members?.values() ?? []),
       ]
         .sort(() => Math.random() - 0.5)
         .map((e, i) => String(i + 1) + " " + e?.displayName)
